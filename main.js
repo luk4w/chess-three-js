@@ -126,6 +126,9 @@ function createPieces() {
         const material = pieceData.color === 'white' ? whitePieceMaterial : blackPieceMaterial;
         pieceMesh.traverse(child => { if (child.isMesh) child.material = material; });
         pieceMesh.scale.set(30, 30, 30);
+        if (pieceData.type === 'knight' && pieceData.color === 'black') {
+            pieceMesh.rotation.y = Math.PI; // Girar o cavalo preto em 180 graus
+        }
         pieceMesh.position.set(pieceData.col * SQUARE_SIZE, 0.05, pieceData.row * SQUARE_SIZE);
 
         pieceMesh.userData = { type: pieceData.type, color: pieceData.color };
