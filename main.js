@@ -187,8 +187,8 @@ function selectPiece(pieceMesh) {
     if (selectedPiece) deselectPiece(selectedPiece);
 
     selectedPiece = pieceMesh;
-    // const sfx = new Audio("select.mp3");
-    // sfx.play();
+    const sfx = new Audio("sounds/select.wav");
+    sfx.play();
     new TWEEN.Tween(pieceMesh.position)
         .to({ y: 0.5 }, 150)
         .easing(TWEEN.Easing.Quadratic.Out)
@@ -209,12 +209,14 @@ function movePiece(pieceToMove, newRow, newCol) {
         0.5,
         newRow * SQUARE_SIZE
     );
-    // const sfx = new Audio("move.mp3");
-    // sfx.play();
+
     new TWEEN.Tween(pieceToMove.mainObject.position)
         .to(targetPosition, 400)
         .easing(TWEEN.Easing.Quadratic.InOut)
         .onComplete(() => {
+            const sfx = new Audio("sounds/move.wav");
+            sfx.play();
+
             new TWEEN.Tween(pieceToMove.mainObject.position)
                 .to({ y: 0.05 }, 150)
                 .easing(TWEEN.Easing.Quadratic.Out)
