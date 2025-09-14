@@ -1,32 +1,23 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import TWEEN from '@tweenjs/tween.js';
 
-// =================================================================
-// 1. INICIALIZAÇÃO BÁSICA
-// =================================================================
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xCCCCCC);
+// --- VARIÁVEIS GLOBAIS ---
+let scene, camera, renderer, controls, boardGroup, piecesGroup;
+const pieceModels = {};
+const pieceObjects = [];
+const clickableObjects = []; // Guarda todas as peças e quadrados
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(5, 7, 10);
-camera.lookAt(0, 0, 0);
+// --- VARIÁVEIS DE INTERAÇÃO ---
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let selectedPiece = null;
 
-const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#webgl') });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-
-// =================================================================
-// 2. CONSTANTES E DADOS DO JOGO
-// =================================================================
+// --- CONSTANTES E DADOS DO JOGO ---
 const BOARD_SIZE = 8;
 const SQUARE_SIZE = 1;
-
 const initialBoardState = [
     // Peças Pretas
     { type: 'rook', color: 'black', row: 0, col: 0 },
@@ -50,115 +41,200 @@ const initialBoardState = [
     { type: 'rook', color: 'white', row: 7, col: 7 },
 ];
 
-// Materiais para as peças que serão aplicados aos modelos
-const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebebeb, roughness: 0.4, metalness: 0.6 });
-const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 });
-
-// guarda os modelos 3D depois de carregados
-const pieceModels = {};
-
-// =================================================================
-// 3. ILUMINAÇÃO
-// =================================================================
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-scene.add(ambientLight);
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-directionalLight.position.set(5, 10, 7.5);
-scene.add(directionalLight);
-
-// =================================================================
-// 4. LÓGICA DE MONTAGEM DO JOGO
-// =================================================================
-
-// Função principal assíncrona para orquestrar o carregamento e a criação
+// --- FUNÇÃO PRINCIPAL ---
 async function init() {
+    setupScene();
+    setupLighting();
     await loadAllPieceModels();
-    createBoardAndPieces();
+
+    boardGroup = createBoard();
+    scene.add(boardGroup);
+
+    piecesGroup = createPieces();
+    scene.add(piecesGroup);
+
+    setupEventListeners();
     animate();
 }
 
-// Função para carregar todos os modelos .glb
+// --- FUNÇÕES DE SETUP ---
+function setupScene() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xCCCCCC);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 8, 8);
+    renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#webgl'), antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.enableDamping = true;
+}
+
+function setupLighting() {
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    directionalLight.position.set(5, 10, 7.5);
+    scene.add(directionalLight);
+}
+
+function setupEventListeners() {
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('mousedown', onMouseDown);
+}
+
+// --- FUNÇÕES DE CRIAÇÃO ---
 async function loadAllPieceModels() {
     const gltfLoader = new GLTFLoader();
-    // Configuração do DRACOLoader
     const dracoLoader = new DRACOLoader();
-    dracoLoader.setDecoderPath('https://unpkg.com/three@0.157.0/examples/jsm/libs/draco/gltf/');
+    dracoLoader.setDecoderPath('libs/draco/gltf/');
     gltfLoader.setDRACOLoader(dracoLoader);
-
     const pieceTypes = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'];
     for (const type of pieceTypes) {
-        // O `await` pausa a função até o modelo ser baixado e processado
         const model = await gltfLoader.loadAsync(`models/${type}.glb`);
-        // Armazenamos a cena do modelo para clonar depois
         pieceModels[type] = model.scene;
     }
 }
 
-// Função que cria o tabuleiro e posiciona as peças
-function createBoardAndPieces() {
-    const boardGroup = new THREE.Group();
-
-    // Lógica para criar os quadrados (a mesma que você já tinha)
-    const whiteMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-    const blackMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+function createBoard() {
+    const group = new THREE.Group();
+    const whiteSquareMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const blackSquareMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
     const squareGeometry = new THREE.BoxGeometry(SQUARE_SIZE, 0.1, SQUARE_SIZE);
 
     for (let row = 0; row < BOARD_SIZE; row++) {
         for (let col = 0; col < BOARD_SIZE; col++) {
-            const isWhite = (row + col) % 2 === 0;
-            const material = isWhite ? whiteMaterial : blackMaterial;
-            const square = new THREE.Mesh(squareGeometry, material);
+            const square = new THREE.Mesh(squareGeometry, (row + col) % 2 === 0 ? whiteSquareMaterial : blackSquareMaterial);
             square.position.set(col * SQUARE_SIZE, 0, row * SQUARE_SIZE);
-            boardGroup.add(square);
+            square.userData = { type: 'square', row, col };
+            group.add(square);
+            clickableObjects.push(square);
         }
     }
-
-    // Lógica para posicionar as peças usando os modelos carregados
-    initialBoardState.forEach(pieceData => {
-        const sourceModel = pieceModels[pieceData.type];
-        if (sourceModel) {
-            const pieceMesh = sourceModel.clone(true); // CLONA o modelo base
-            const material = pieceData.color === 'white' ? whitePieceMaterial : blackPieceMaterial;
-
-            pieceMesh.traverse((child) => {
-                if (child.isMesh) {
-                    child.material = material; // Aplica nosso material à peça
-                }
-            });
-
-            // Escala das peças 
-            pieceMesh.scale.set(30, 30, 30); 
-
-            pieceMesh.position.set(
-                pieceData.col * SQUARE_SIZE,
-                0.05,
-                pieceData.row * SQUARE_SIZE
-            );
-            boardGroup.add(pieceMesh);
-        }
-    });
-
-    // Centraliza o tabuleiro (e as peças junto com ele)
     const offset = (BOARD_SIZE * SQUARE_SIZE) / 2 - SQUARE_SIZE / 2;
-    boardGroup.position.set(-offset, 0, -offset);
-
-    scene.add(boardGroup);
+    group.position.set(-offset, 0, -offset);
+    return group;
 }
 
-// loop de animação
+function createPieces() {
+    const group = new THREE.Group();
+    const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebebeb, roughness: 0.4, metalness: 0.6 });
+    const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 });
+
+    initialBoardState.forEach(pieceData => {
+        const pieceMesh = pieceModels[pieceData.type].clone(true);
+        const material = pieceData.color === 'white' ? whitePieceMaterial : blackPieceMaterial;
+        pieceMesh.traverse(child => { if (child.isMesh) child.material = material; });
+        pieceMesh.scale.set(30, 30, 30);
+        pieceMesh.position.set(pieceData.col * SQUARE_SIZE, 0.05, pieceData.row * SQUARE_SIZE);
+
+        pieceMesh.userData = { type: pieceData.type, color: pieceData.color };
+        group.add(pieceMesh);
+        clickableObjects.push(pieceMesh);
+
+        pieceObjects.push({ mainObject: pieceMesh, ...pieceData });
+    });
+    const offset = (BOARD_SIZE * SQUARE_SIZE) / 2 - SQUARE_SIZE / 2;
+    group.position.set(-offset, 0, -offset);
+    return group;
+}
+
+// --- LÓGICA DE INTERAÇÃO (RAYCASTING) ---
+function onMouseDown(event) {
+    if (event.button !== 0) return; // Apenas botão esquerdo
+
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(clickableObjects, true);
+
+    if (intersects.length > 0) {
+        handleInteraction(intersects[0].object);
+    } else if (selectedPiece) {
+        deselectPiece(selectedPiece);
+    }
+}
+
+function handleInteraction(clickedObject) {
+    let targetObject = clickedObject;
+    while (targetObject.parent && !targetObject.userData.type) {
+        targetObject = targetObject.parent;
+    }
+
+    if (!selectedPiece) {
+        if (targetObject.userData.type !== 'square') {
+            selectPiece(targetObject);
+        }
+    } else {
+        if (targetObject === selectedPiece) {
+            deselectPiece(selectedPiece);
+            return;
+        }
+
+        if (targetObject.userData.type === 'square') {
+            const pieceToMove = pieceObjects.find(p => p.mainObject === selectedPiece);
+            if (pieceToMove) movePiece(pieceToMove, targetObject.userData.row, targetObject.userData.col);
+        }
+        deselectPiece(selectedPiece);
+    }
+}
+
+// --- FUNÇÕES DE MOVIMENTO E SELEÇÃO (COM ANIMAÇÃO) ---
+function selectPiece(pieceMesh) {
+    if (selectedPiece) deselectPiece(selectedPiece);
+
+    selectedPiece = pieceMesh;
+    // const sfx = new Audio("select.mp3");
+    // sfx.play();
+    new TWEEN.Tween(pieceMesh.position)
+        .to({ y: 0.5 }, 150)
+        .easing(TWEEN.Easing.Quadratic.Out)
+        .start();
+}
+
+function deselectPiece(pieceMesh) {
+    new TWEEN.Tween(pieceMesh.position)
+        .to({ y: 0.05 }, 150)
+        .easing(TWEEN.Easing.Quadratic.Out)
+        .start();
+    selectedPiece = null;
+}
+
+function movePiece(pieceToMove, newRow, newCol) {
+    const targetPosition = new THREE.Vector3(
+        newCol * SQUARE_SIZE,
+        0.5,
+        newRow * SQUARE_SIZE
+    );
+    // const sfx = new Audio("move.mp3");
+    // sfx.play();
+    new TWEEN.Tween(pieceToMove.mainObject.position)
+        .to(targetPosition, 400)
+        .easing(TWEEN.Easing.Quadratic.InOut)
+        .onComplete(() => {
+            new TWEEN.Tween(pieceToMove.mainObject.position)
+                .to({ y: 0.05 }, 150)
+                .easing(TWEEN.Easing.Quadratic.Out)
+                .start();
+        })
+        .start();
+    pieceToMove.row = newRow;
+    pieceToMove.col = newCol;
+}
+
+// --- LOOP DE ANIMAÇÃO E RESIZE ---
 const animate = () => {
-    controls.update();
-    renderer.render(scene, camera);
     requestAnimationFrame(animate);
+    controls.update();
+    TWEEN.update(); // Atualizar as animações a cada frame
+    renderer.render(scene, camera);
 };
 
-window.addEventListener('resize', () => {
+function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-});
+}
 
-
-// Inicia tudo
+// --- INÍCIO ---
 init();
