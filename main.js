@@ -6,6 +6,7 @@ import TWEEN from '@tweenjs/tween.js';
 
 // --- VARIÁVEIS GLOBAIS ---
 let scene, camera, renderer, controls, boardGroup, piecesGroup;
+let dir; // Variável para a luz direcional, acessível globalmente
 const pieceModels = {};
 const pieceObjects = [];
 const clickableObjects = []; // Guarda todas as peças e quadrados
@@ -24,14 +25,14 @@ const SQUARE_SIZE = 1;
 
 const initialBoardState = [
     // Peças Brancas
-    { type: 'rook', color: 'white', row: 0, col: 0 }, // Torre da Rainha
+    { type: 'rook', color: 'white', row: 0, col: 0 },
     { type: 'knight', color: 'white', row: 0, col: 1 },
     { type: 'bishop', color: 'white', row: 0, col: 2 },
-    { type: 'queen', color: 'white', row: 0, col: 3 }, // Rainha na sua cor (casa preta d1)
+    { type: 'queen', color: 'white', row: 0, col: 3 },
     { type: 'king', color: 'white', row: 0, col: 4 },
     { type: 'bishop', color: 'white', row: 0, col: 5 },
     { type: 'knight', color: 'white', row: 0, col: 6 },
-    { type: 'rook', color: 'white', row: 0, col: 7 }, // Torre do Rei
+    { type: 'rook', color: 'white', row: 0, col: 7 },
     ...Array(8).fill(null).map((_, i) => ({ type: 'pawn', color: 'white', row: 1, col: i })),
 
     // Peças Pretas
@@ -39,7 +40,7 @@ const initialBoardState = [
     { type: 'rook', color: 'black', row: 7, col: 0 },
     { type: 'knight', color: 'black', row: 7, col: 1 },
     { type: 'bishop', color: 'black', row: 7, col: 2 },
-    { type: 'queen', color: 'black', row: 7, col: 3 }, // Rainha na sua cor (casa branca d8)
+    { type: 'queen', color: 'black', row: 7, col: 3 },
     { type: 'king', color: 'black', row: 7, col: 4 },
     { type: 'bishop', color: 'black', row: 7, col: 5 },
     { type: 'knight', color: 'black', row: 7, col: 6 },
@@ -89,7 +90,7 @@ function setupLighting() {
     scene.add(hemi);
 
     // Luz direcional principal (sol) com sombras suaves
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir = new THREE.DirectionalLight(0xffffff, 1.0);
     dir.position.set(5, 12, 8);
     dir.castShadow = true;
     dir.shadow.mapSize.width = 2048;
@@ -311,105 +312,59 @@ function capturePiece(pieceToCapture) {
         const scale = 12 + Math.random() * 10;
         mini.scale.set(scale, scale, scale);
         mini.position.copy(origin);
+        mini.rotation.set(Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2);
 
-        // Rotação inicial aleatória
-        mini.rotation.set(
-            Math.random() * Math.PI * 2,
-            Math.random() * Math.PI * 2,
-            Math.random() * Math.PI * 2
-        );
-
-        // Velocidade inicial: mais vertical, mais rápida
         const angle = Math.random() * Math.PI * 2;
         const horizontalSpeed = 1.2 + Math.random() * 2.2;
         const verticalSpeed = 3.5 + Math.random() * 2.5;
-        const velocity = new THREE.Vector3(
-            Math.cos(angle) * horizontalSpeed,
-            verticalSpeed,
-            Math.sin(angle) * horizontalSpeed
-        );
+        const velocity = new THREE.Vector3(Math.cos(angle) * horizontalSpeed, verticalSpeed, Math.sin(angle) * horizontalSpeed);
+        const angularVelocity = new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
 
-        // Velocidade angular para rotação animada (mais rápida)
-        const angularVelocity = new THREE.Vector3(
-            (Math.random() - 0.5) * 8,
-            (Math.random() - 0.5) * 8,
-            (Math.random() - 0.5) * 8
-        );
-
-        // Guarda o fragmento e suas propriedades para serem animados no loop principal
         activeFragments.push({
             mesh: mini,
             velocity: velocity,
             angularVelocity: angularVelocity,
             life: 1.0,
             initialScale: scale,
-            bounced: false // Para controlar o "quique"
+            bounced: false
         });
-
         piecesGroup.add(mini);
     }
-
-    // Remove a peça original do grupo principal
     if (mesh.parent) mesh.parent.remove(mesh);
 }
 
 // --- FUNÇÕES DE MOVIMENTO E SELEÇÃO (COM ANIMAÇÃO) ---
 function selectPiece(pieceMesh) {
     if (!pieceMesh.userData.type || pieceMesh.userData.type === 'square') return;
-
     if (selectedPiece) deselectPiece(selectedPiece);
-
     selectedPiece = pieceMesh;
     const sfx = new Audio("sounds/select.wav");
     sfx.play();
-
-    // Todas as peças levantam igual ao selecionar
-    new TWEEN.Tween(pieceMesh.position)
-        .to({ y: 0.5 }, 180)
-        .easing(TWEEN.Easing.Back.Out)
-        .start();
+    new TWEEN.Tween(pieceMesh.position).to({ y: 0.5 }, 180).easing(TWEEN.Easing.Back.Out).start();
 }
 
 function deselectPiece(pieceMesh) {
-    new TWEEN.Tween(pieceMesh.position)
-        .to({ y: 0.05 }, 150)
-        .easing(TWEEN.Easing.Quadratic.Out)
-        .start();
+    new TWEEN.Tween(pieceMesh.position).to({ y: 0.05 }, 150).easing(TWEEN.Easing.Quadratic.Out).start();
     selectedPiece = null;
 }
 
 function movePiece(pieceToMove, newRow, newCol, onComplete, captureTarget) {
-    const targetPosition = new THREE.Vector3(
-        newCol * SQUARE_SIZE,
-        0.5,
-        (BOARD_SIZE - 1 - newRow) * SQUARE_SIZE
-    );
-
-    // Calcular distância e tempo de animação
+    const targetPosition = new THREE.Vector3(newCol * SQUARE_SIZE, 0.5, (BOARD_SIZE - 1 - newRow) * SQUARE_SIZE);
     const start = pieceToMove.mainObject.position.clone();
     const end = targetPosition.clone();
     const distance = start.distanceTo(end);
-    // Duração proporcional à distância, mas com mínimo/máximo
     const baseDuration = 320;
     const duration = Math.max(180, Math.min(600, baseDuration * (distance / SQUARE_SIZE)));
-
     let captureTriggered = false;
-    const captureTriggerT = 0.85; // Quando atingir 85% do caminho, executa a captura
+    const captureTriggerT = 0.85;
 
-    // Limpa a posição antiga imediatamente (evita duplicatas)
-    const oldRow = pieceToMove.row;
-    const oldCol = pieceToMove.col;
-    boardState[oldRow][oldCol] = null;
+    boardState[pieceToMove.row][pieceToMove.col] = null;
 
     if (pieceToMove.mainObject.userData.type === 'knight') {
-        const start = pieceToMove.mainObject.position.clone();
-        const end = targetPosition.clone();
-        const duration = 420;
         const peak = Math.max(start.y, end.y) + 1.5;
         const dx = end.x - start.x;
         const dz = end.z - start.z;
         let targetRotationY = Math.atan2(-dx, -dz);
-
         const initialRotationY = pieceToMove.mainObject.rotation.y;
         let deltaRot = targetRotationY - initialRotationY;
         if (deltaRot > Math.PI) deltaRot -= 2 * Math.PI;
@@ -417,127 +372,91 @@ function movePiece(pieceToMove, newRow, newCol, onComplete, captureTarget) {
         const finalRotationY = initialRotationY + deltaRot;
 
         let obj = { t: 0 };
-        new TWEEN.Tween(obj)
-            .to({ t: 1 }, duration)
-            .easing(TWEEN.Easing.Quadratic.InOut)
-            .onUpdate(() => {
+        new TWEEN.Tween(obj).to({ t: 1 }, 420).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => {
+            pieceToMove.mainObject.position.x = start.x + (end.x - start.x) * obj.t;
+            pieceToMove.mainObject.position.z = start.z + (end.z - start.z) * obj.t;
+            pieceToMove.mainObject.position.y = (1 - obj.t) * (1 - obj.t) * start.y + 2 * (1 - obj.t) * obj.t * peak + obj.t * obj.t * 0.05;
+            pieceToMove.mainObject.rotation.y = initialRotationY + deltaRot * obj.t;
+            if (captureTarget && !captureTriggered && obj.t >= captureTriggerT) {
+                capturePiece(captureTarget);
+                captureTriggered = true;
+            }
+        }).onComplete(() => {
+            // Só toca som de movimento se não houve captura
+            if (!captureTarget) {
+                const sfx = new Audio("sounds/move.wav");
+                sfx.play();
+            }
+            pieceToMove.mainObject.position.y = 0.05;
+            pieceToMove.mainObject.rotation.y = finalRotationY;
+            pieceToMove.row = newRow;
+            pieceToMove.col = newCol;
+            boardState[newRow][newCol] = pieceToMove;
+            if (onComplete) onComplete();
+        }).start();
+    } else {
+        new TWEEN.Tween(pieceToMove.mainObject.position).to({ y: 0.5 }, 140).easing(TWEEN.Easing.Back.Out).onComplete(() => {
+            let obj = { t: 0 };
+            new TWEEN.Tween(obj).to({ t: 1 }, duration).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(() => {
                 pieceToMove.mainObject.position.x = start.x + (end.x - start.x) * obj.t;
                 pieceToMove.mainObject.position.z = start.z + (end.z - start.z) * obj.t;
-                pieceToMove.mainObject.position.y =
-                    (1 - obj.t) * (1 - obj.t) * start.y +
-                    2 * (1 - obj.t) * obj.t * peak +
-                    obj.t * obj.t * 0.05;
-                pieceToMove.mainObject.rotation.y = initialRotationY + deltaRot * obj.t;
-
-                // Executa a captura quando estiver próximo do destino
                 if (captureTarget && !captureTriggered && obj.t >= captureTriggerT) {
                     capturePiece(captureTarget);
                     captureTriggered = true;
                 }
-            })
-            .onComplete(() => {
-                const sfx = new Audio("sounds/move.wav");
-                sfx.play();
-                pieceToMove.mainObject.position.y = 0.05;
-                pieceToMove.mainObject.rotation.y = finalRotationY;
-
-                // Atualiza o estado do tabuleiro APÓS a animação
-                pieceToMove.row = newRow;
-                pieceToMove.col = newCol;
-                boardState[newRow][newCol] = pieceToMove;
-
-                if (onComplete) onComplete();
-            })
-            .start();
-    } else {
-        // Animação padrão para outras peças
-        const liftY = 0.5;
-        new TWEEN.Tween(pieceToMove.mainObject.position)
-            .to({ y: liftY }, 140)
-            .easing(TWEEN.Easing.Back.Out)
-            .onComplete(() => {
-                let obj = { t: 0 };
-                new TWEEN.Tween(obj)
-                    .to({ t: 1 }, duration)
-                    .easing(TWEEN.Easing.Quadratic.InOut)
-                    .onUpdate(() => {
-                        pieceToMove.mainObject.position.x = start.x + (end.x - start.x) * obj.t;
-                        pieceToMove.mainObject.position.z = start.z + (end.z - start.z) * obj.t;
-
-                        // Executa a captura quando estiver próximo do destino
-                        if (captureTarget && !captureTriggered && obj.t >= captureTriggerT) {
-                            capturePiece(captureTarget);
-                            captureTriggered = true;
-                        }
-                    })
-                    .onComplete(() => {
-                        const sfx = new Audio("sounds/move.wav");
-                        sfx.play();
-                        new TWEEN.Tween(pieceToMove.mainObject.position)
-                            .to({ y: 0.05 }, 140)
-                            .easing(TWEEN.Easing.Back.In)
-                            .onComplete(() => {
-                                // Atualiza o estado do tabuleiro APÓS a animação
-                                pieceToMove.row = newRow;
-                                pieceToMove.col = newCol;
-                                boardState[newRow][newCol] = pieceToMove;
-
-                                if (onComplete) onComplete();
-                            })
-                            .start();
-                    })
-                    .start();
-            })
-            .start();
+            }).onComplete(() => {
+                // Só toca som de movimento se não houve captura
+                if (!captureTarget) {
+                    const sfx = new Audio("sounds/move.wav");
+                    sfx.play();
+                }
+                new TWEEN.Tween(pieceToMove.mainObject.position).to({ y: 0.05 }, 140).easing(TWEEN.Easing.Back.In).onComplete(() => {
+                    pieceToMove.row = newRow;
+                    pieceToMove.col = newCol;
+                    boardState[newRow][newCol] = pieceToMove;
+                    if (onComplete) onComplete();
+                }).start();
+            }).start();
+        }).start();
     }
-
-    // Atualiza o estado do tabuleiro
-    boardState[pieceToMove.row][pieceToMove.col] = null;
-    pieceToMove.row = newRow;
-    pieceToMove.col = newCol;
-    boardState[newRow][newCol] = pieceToMove;
 }
 
 // --- LOOP DE ANIMAÇÃO E RESIZE ---
-// A ÚNICA função animate que você deve ter no seu código
 const animate = () => {
     requestAnimationFrame(animate);
     const deltaTime = clock.getDelta();
     controls.update();
     TWEEN.update();
+
+    if (dir) {
+        // Copia a posição da câmera para a luz
+        dir.position.copy(camera.position);
+        // Adiciona um deslocamento (offset) para que a luz não fique exatamente no mesmo ponto, 
+        dir.position.add(new THREE.Vector3(3, 5, 2));
+    }
+
     const gravity = 13.5;
     for (let i = activeFragments.length - 1; i >= 0; i--) {
         const fragment = activeFragments[i];
-
-        // Aplica a gravidade à velocidade vertical
         fragment.velocity.y -= gravity * deltaTime;
-
-        // Move o fragmento com base na sua velocidade
         fragment.mesh.position.x += fragment.velocity.x * deltaTime;
         fragment.mesh.position.y += fragment.velocity.y * deltaTime;
         fragment.mesh.position.z += fragment.velocity.z * deltaTime;
 
-        // "Quica" levemente ao tocar o chão uma vez
         if (!fragment.bounced && fragment.mesh.position.y < 0.05) {
             fragment.mesh.position.y = 0.05;
-            fragment.velocity.y *= -0.35 * (0.5 + Math.random() * 0.5); // Perde energia
+            fragment.velocity.y *= -0.35 * (0.5 + Math.random() * 0.5);
             fragment.velocity.x *= 0.7;
             fragment.velocity.z *= 0.7;
             fragment.bounced = true;
         }
 
-        // Rotaciona o fragmento
         fragment.mesh.rotation.x += fragment.angularVelocity.x * deltaTime;
         fragment.mesh.rotation.y += fragment.angularVelocity.y * deltaTime;
         fragment.mesh.rotation.z += fragment.angularVelocity.z * deltaTime;
-
-        // Diminui a "vida" do fragmento
         fragment.life -= 0.7 * deltaTime;
 
-        // Anima o fade-out e escala com easing
-        const ease = fragment.life < 0.5
-            ? 2 * fragment.life * fragment.life
-            : -2 * (fragment.life - 1) * (fragment.life - 1) + 1;
+        const ease = fragment.life < 0.5 ? 2 * fragment.life * fragment.life : -2 * (fragment.life - 1) * (fragment.life - 1) + 1;
         const scale = Math.max(0, fragment.initialScale * Math.max(0, ease));
         fragment.mesh.scale.set(scale, scale, scale);
 
@@ -547,12 +466,10 @@ const animate = () => {
                     child.material = child.material.clone();
                     child.material.transparent = true;
                 }
-                // Fade-out com easing
                 child.material.opacity = Math.max(0, ease);
             }
         });
 
-        // Se a vida acabou, remove o fragmento
         if (fragment.life <= 0) {
             if (fragment.mesh.parent) fragment.mesh.parent.remove(fragment.mesh);
             activeFragments.splice(i, 1);
