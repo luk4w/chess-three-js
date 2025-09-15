@@ -147,8 +147,8 @@ function initializeBoardState() {
 function createBoard() {
     const group = new THREE.Group();
     // materiais com roughness/metalness para resposta mais rica à iluminação
-    const whiteSquareMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.05 });
-    const blackSquareMaterial = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7, metalness: 0.02 });
+    const whiteSquareMaterial = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.2 });
+    const blackSquareMaterial = new THREE.MeshStandardMaterial({ color: 0x026544, roughness: 0.2 });
     const squareGeometry = new THREE.BoxGeometry(SQUARE_SIZE, 0.1, SQUARE_SIZE);
 
     for (let row = 0; row < BOARD_SIZE; row++) {
@@ -174,8 +174,8 @@ function createBoard() {
 function createPieces() {
     const group = new THREE.Group();
     // Materiais das peças com propriedades para reagir à iluminação
-    const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebebeb, roughness: 0.35, metalness: 0.15 });
-    const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x0f0f0f, roughness: 0.25, metalness: 0.12 });
+    const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebdaae, roughness: 0.3 });
+    const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x0e110b, roughness: 0.25 });
 
     initialBoardState.forEach(pieceData => {
         const pieceMesh = pieceModels[pieceData.type].clone(true);
