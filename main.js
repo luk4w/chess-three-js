@@ -221,10 +221,9 @@ function handleInteraction(clickedObject) {
             // Salve a peça capturada ANTES de mover!
             const captured = pieceObjects.find(p => p.row === targetRow && p.col === targetCol);
             const selectedPieceData = pieceObjects.find(p => p.mainObject === selectedPiece);
-            if (selectedPieceData) {
-                movePiece(selectedPieceData, targetRow, targetCol, () => {
-                    if (captured) capturePiece(captured);
-                });
+            if (selectedPieceData && captured) {
+                // Agora: move a peça e executa a captura durante a animação
+                movePiece(selectedPieceData, targetRow, targetCol, undefined, captured);
             }
 
         } else {
@@ -251,7 +250,12 @@ function capturePiece(pieceToCapture) {
     const clickableIdx = clickableObjects.indexOf(mesh);
     if (clickableIdx !== -1) clickableObjects.splice(clickableIdx, 1);
 
-    // --- 2. CRIA OS FRAGMENTOS (SÓ CRIA, NÃO ANIMA) ---
+    // --- 2. SOM DE CAPTURA ---
+    const sfx = new Audio("sounds/capture.wav");
+    sfx.volume = 0.6;
+    sfx.play();
+
+    // --- 3. CRIA OS FRAGMENTOS (SÓ CRIA, NÃO ANIMA) ---
     mesh.visible = false;
     const origin = mesh.position.clone();
 
@@ -330,40 +334,74 @@ function deselectPiece(pieceMesh) {
     selectedPiece = null;
 }
 
-function movePiece(pieceToMove, newRow, newCol, onComplete) {
+function movePiece(pieceToMove, newRow, newCol, onComplete, captureTarget) {
     const targetPosition = new THREE.Vector3(
         newCol * SQUARE_SIZE,
         0.5,
         (BOARD_SIZE - 1 - newRow) * SQUARE_SIZE
     );
 
-    // Se for cavalo, faz arco parabólico
+    // Calcular distância e tempo de animação
+    const start = pieceToMove.mainObject.position.clone();
+    const end = targetPosition.clone();
+    const distance = start.distanceTo(end);
+    // Duração proporcional à distância, mas com mínimo/máximo
+    const baseDuration = 320;
+    const duration = Math.max(180, Math.min(600, baseDuration * (distance / SQUARE_SIZE)));
+
+    let captureTriggered = false;
+    const captureTriggerT = 0.85; // Quando atingir 85% do caminho, executa a captura
+
+    // Limpa a posição antiga imediatamente (evita duplicatas)
+    const oldRow = pieceToMove.row;
+    const oldCol = pieceToMove.col;
+    boardState[oldRow][oldCol] = null;
+
     if (pieceToMove.mainObject.userData.type === 'knight') {
         const start = pieceToMove.mainObject.position.clone();
         const end = targetPosition.clone();
         const duration = 420;
-        const peak = Math.max(start.y, end.y) + 1.5; // Altura máxima do arco
+        const peak = Math.max(start.y, end.y) + 1.5;
+        const dx = end.x - start.x;
+        const dz = end.z - start.z;
+        let targetRotationY = Math.atan2(-dx, -dz);
 
-        // Anima X e Z linearmente, Y em parábola
+        const initialRotationY = pieceToMove.mainObject.rotation.y;
+        let deltaRot = targetRotationY - initialRotationY;
+        if (deltaRot > Math.PI) deltaRot -= 2 * Math.PI;
+        if (deltaRot < -Math.PI) deltaRot += 2 * Math.PI;
+        const finalRotationY = initialRotationY + deltaRot;
+
         let obj = { t: 0 };
         new TWEEN.Tween(obj)
             .to({ t: 1 }, duration)
             .easing(TWEEN.Easing.Quadratic.InOut)
             .onUpdate(() => {
-                // Interpolação linear para X e Z
                 pieceToMove.mainObject.position.x = start.x + (end.x - start.x) * obj.t;
                 pieceToMove.mainObject.position.z = start.z + (end.z - start.z) * obj.t;
-                // Interpolação parabólica para Y
-                // y = (1 - t)^2 * startY + 2*(1-t)*t*peak + t^2*endY
                 pieceToMove.mainObject.position.y =
                     (1 - obj.t) * (1 - obj.t) * start.y +
                     2 * (1 - obj.t) * obj.t * peak +
                     obj.t * obj.t * 0.05;
+                pieceToMove.mainObject.rotation.y = initialRotationY + deltaRot * obj.t;
+
+                // Executa a captura quando estiver próximo do destino
+                if (captureTarget && !captureTriggered && obj.t >= captureTriggerT) {
+                    capturePiece(captureTarget);
+                    captureTriggered = true;
+                }
             })
             .onComplete(() => {
                 const sfx = new Audio("sounds/move.wav");
                 sfx.play();
                 pieceToMove.mainObject.position.y = 0.05;
+                pieceToMove.mainObject.rotation.y = finalRotationY;
+
+                // Atualiza o estado do tabuleiro APÓS a animação
+                pieceToMove.row = newRow;
+                pieceToMove.col = newCol;
+                boardState[newRow][newCol] = pieceToMove;
+
                 if (onComplete) onComplete();
             })
             .start();
@@ -374,9 +412,20 @@ function movePiece(pieceToMove, newRow, newCol, onComplete) {
             .to({ y: liftY }, 140)
             .easing(TWEEN.Easing.Back.Out)
             .onComplete(() => {
-                new TWEEN.Tween(pieceToMove.mainObject.position)
-                    .to({ x: targetPosition.x, z: targetPosition.z }, 320)
+                let obj = { t: 0 };
+                new TWEEN.Tween(obj)
+                    .to({ t: 1 }, duration)
                     .easing(TWEEN.Easing.Quadratic.InOut)
+                    .onUpdate(() => {
+                        pieceToMove.mainObject.position.x = start.x + (end.x - start.x) * obj.t;
+                        pieceToMove.mainObject.position.z = start.z + (end.z - start.z) * obj.t;
+
+                        // Executa a captura quando estiver próximo do destino
+                        if (captureTarget && !captureTriggered && obj.t >= captureTriggerT) {
+                            capturePiece(captureTarget);
+                            captureTriggered = true;
+                        }
+                    })
                     .onComplete(() => {
                         const sfx = new Audio("sounds/move.wav");
                         sfx.play();
@@ -384,6 +433,11 @@ function movePiece(pieceToMove, newRow, newCol, onComplete) {
                             .to({ y: 0.05 }, 140)
                             .easing(TWEEN.Easing.Back.In)
                             .onComplete(() => {
+                                // Atualiza o estado do tabuleiro APÓS a animação
+                                pieceToMove.row = newRow;
+                                pieceToMove.col = newCol;
+                                boardState[newRow][newCol] = pieceToMove;
+
                                 if (onComplete) onComplete();
                             })
                             .start();
