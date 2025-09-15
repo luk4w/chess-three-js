@@ -69,20 +69,51 @@ function setupScene() {
     scene.background = new THREE.Color(0xCCCCCC);
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(0, 7, 7);
+
+    // Habilita sombras e iluminação física
     renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#webgl'), antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.physicallyCorrectLights = true;
+
     controls = new OrbitControls(camera, renderer.domElement);
     controls.target.set(0, 0, 0);
     controls.enableDamping = true;
-
 }
 
 function setupLighting() {
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    directionalLight.position.set(5, 10, 7.5);
-    scene.add(directionalLight);
+    // Luz ambiente com temperatura sutil (céu/solo)
+    const hemi = new THREE.HemisphereLight(0xf6f7ff, 0x444444, 0.65);
+    scene.add(hemi);
+
+    // Luz direcional principal (sol) com sombras suaves
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(5, 12, 8);
+    dir.castShadow = true;
+    dir.shadow.mapSize.width = 2048;
+    dir.shadow.mapSize.height = 2048;
+    dir.shadow.camera.near = 0.5;
+    dir.shadow.camera.far = 50;
+    dir.shadow.camera.left = -10;
+    dir.shadow.camera.right = 10;
+    dir.shadow.camera.top = 10;
+    dir.shadow.camera.bottom = -10;
+    dir.shadow.bias = -0.0005;
+    scene.add(dir);
+
+    // Luz de preenchimento suave para reduzir contrastes e destacar contornos
+    const fill = new THREE.PointLight(0xfff7e6, 0.35, 30);
+    fill.position.set(-6, 6, -6);
+    fill.castShadow = false;
+    scene.add(fill);
+
+    // Luz de contorno/rim atrás para realçar silhuetas
+    const rim = new THREE.PointLight(0xbde7ff, 0.25, 40);
+    rim.position.set(6, 4, -6);
+    rim.castShadow = false;
+    scene.add(rim);
 }
 
 function setupEventListeners() {
@@ -114,8 +145,9 @@ function initializeBoardState() {
 
 function createBoard() {
     const group = new THREE.Group();
-    const whiteSquareMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
-    const blackSquareMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+    // materiais com roughness/metalness para resposta mais rica à iluminação
+    const whiteSquareMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.05 });
+    const blackSquareMaterial = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7, metalness: 0.02 });
     const squareGeometry = new THREE.BoxGeometry(SQUARE_SIZE, 0.1, SQUARE_SIZE);
 
     for (let row = 0; row < BOARD_SIZE; row++) {
@@ -125,6 +157,10 @@ function createBoard() {
             const posZ = (BOARD_SIZE - 1 - row) * SQUARE_SIZE;
             square.position.set(posX, 0, posZ);
             square.userData = { type: 'square', row, col };
+
+            // Recebe sombras
+            square.receiveShadow = true;
+
             group.add(square);
             clickableObjects.push(square);
         }
@@ -136,13 +172,21 @@ function createBoard() {
 
 function createPieces() {
     const group = new THREE.Group();
-    const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebebeb, roughness: 0.4, metalness: 0.6 });
-    const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 });
+    // Materiais das peças com propriedades para reagir à iluminação
+    const whitePieceMaterial = new THREE.MeshStandardMaterial({ color: 0xebebeb, roughness: 0.35, metalness: 0.15 });
+    const blackPieceMaterial = new THREE.MeshStandardMaterial({ color: 0x0f0f0f, roughness: 0.25, metalness: 0.12 });
 
     initialBoardState.forEach(pieceData => {
         const pieceMesh = pieceModels[pieceData.type].clone(true);
         const material = pieceData.color === 'white' ? whitePieceMaterial : blackPieceMaterial;
-        pieceMesh.traverse(child => { if (child.isMesh) child.material = material; });
+        pieceMesh.traverse(child => {
+            if (child.isMesh) {
+                // Aplica material e habilita sombras
+                child.material = material;
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
         pieceMesh.scale.set(30, 30, 30);
         if (pieceData.type === 'knight' && pieceData.color === 'black') {
             pieceMesh.rotation.y = Math.PI; // Girar o cavalo preto em 180 graus
